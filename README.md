@@ -43,5 +43,4 @@ python3 bot.py
 
 ## Deploy
 
-- **Railway:** https://railway.com/project/4f7023dc-f3ea-4480-94d5-ae11dabbac23?environmentId=f58554fb-88f5-42d8-a6b8-f58604ba428b
-- **Render:** web service con build `pip install -r requirements.txt` e start `python3 bot.py`
+- **Render:** https://dashboard.render.com/web/srv-d7i0hn1j2pic73aho100/events
