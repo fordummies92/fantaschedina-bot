@@ -41,19 +41,18 @@ Regole:
 
 def parse_schedina(image_bytes: bytes) -> dict:
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    model = genai.GenerativeModel("gemini-flash-latest")
+    model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
     img = Image.open(io.BytesIO(image_bytes))
 
     # Retry automatico in caso di 429 (rate limit)
-    for attempt in range(5):
+    for attempt in range(3):
         try:
             response = model.generate_content([PROMPT, img])
             break
         except Exception as e:
-            if "429" in str(e) and attempt < 4:
-                wait = 15 * (attempt + 1)  # 15s, 30s, 45s, 60s
-                time.sleep(wait)
+            if "429" in str(e) and attempt < 2:
+                time.sleep(10)
             else:
                 raise
 
