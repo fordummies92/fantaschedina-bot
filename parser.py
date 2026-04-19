@@ -49,19 +49,19 @@ def parse_schedina(image_bytes: bytes) -> dict:
     for attempt in range(3):
         try:
             response = model.generate_content([PROMPT, img])
-            break
+            raw = response.text.strip()
+            if raw.startswith("```"):
+                parts = raw.split("```")
+                raw = parts[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            return json.loads(raw.strip())
         except Exception as e:
             if "429" in str(e) and attempt < 2:
                 time.sleep(10)
+            elif "429" in str(e):
+                # Quota esaurita → fallback Tesseract
+                from fallback_parser import parse_schedina_fallback
+                return parse_schedina_fallback(image_bytes)
             else:
                 raise
-
-    raw = response.text.strip()
-
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-
-    return json.loads(raw.strip())
