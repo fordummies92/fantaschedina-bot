@@ -45,10 +45,9 @@ def parse_text(text: str) -> dict:
             if len(parts) >= 2:
                 utente = parts[-1]
 
-        # Serie A event line
-        if re.search(r"serie\s*a|calcio", line, re.IGNORECASE):
-            date_m = re.search(r"(\d{2}/\d{2}/\d{2,4})\s+(\d{2}:\d{2})", line)
-            if date_m and i + 2 < len(lines):
+        # Event line: detect by date pattern directly
+        date_m = re.search(r"(\d{2}/\d{2}/\d{2,4})\s+(\d{2}:\d{2})", line)
+        if date_m and i + 2 < len(lines):
                 data = date_m.group(1)
                 # normalize to DD/MM/YY
                 if len(data.split("/")[2]) == 4:
@@ -74,6 +73,7 @@ def parse_text(text: str) -> dict:
                     parsed = _parse_market_line(market_line)
                     if parsed:
                         mercato, pronostico, quota = parsed
+                        pronostico = pronostico.upper()
                         partite.append({
                             "casa": casa,
                             "trasferta": trasferta,
@@ -102,6 +102,7 @@ def parse_text(text: str) -> dict:
 
     return {
         "is_schedina": bool(partite),
+        "used_fallback": True,
         "partite": partite,
         "quota_totale": quota_totale,
         "importo": importo,

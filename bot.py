@@ -52,6 +52,8 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, imag
         results = await asyncio.to_thread(get_results_for_matches, schedina["partite"])
 
         output = format_output(schedina, results)
+        if schedina.get("used_fallback"):
+            output += "\n\n⚠️ <i>Lettura tramite OCR di riserva (quota Gemini esaurita). Alcune partite potrebbero essere mancanti — verifica la schedina.</i>"
         await msg.delete()
         await update.message.reply_text(output, parse_mode="HTML")
 
