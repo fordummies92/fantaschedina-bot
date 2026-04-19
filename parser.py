@@ -41,7 +41,7 @@ Regole:
 
 def parse_schedina(image_bytes: bytes) -> dict:
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    model = genai.GenerativeModel("gemini-2.5-flash")
 
     img = Image.open(io.BytesIO(image_bytes))
 
