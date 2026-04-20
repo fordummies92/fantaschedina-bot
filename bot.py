@@ -6,6 +6,7 @@ import threading
 from flask import Flask
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.error import RetryAfter
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from formatter import format_output
@@ -57,6 +58,9 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, imag
         await msg.delete()
         await update.message.reply_text(output, parse_mode="HTML")
 
+    except RetryAfter as e:
+        await asyncio.sleep(e.retry_after)
+        await msg.edit_text("⚠️ Troppe richieste simultanee. Riprova tra qualche secondo.")
     except Exception as e:
         logger.exception("Errore nell'elaborazione della schedina")
         await msg.edit_text(f"❌ Errore: {str(e)}\n\nRiprova o controlla che la foto sia leggibile.")
