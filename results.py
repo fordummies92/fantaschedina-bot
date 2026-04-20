@@ -144,7 +144,11 @@ def get_results_for_matches(partite: list) -> list:
     for p in partite:
         try:
             d = datetime.strptime(p["data"], "%d/%m/%y")
-            dates.append(d)
+            if d.year < 2024:
+                # OCR ha letto male l'anno — proviamo formato YYYY
+                d = datetime.strptime(p["data"], "%d/%m/%Y")
+            if d.year >= 2024:
+                dates.append(d)
         except Exception:
             pass
 
