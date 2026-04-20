@@ -96,19 +96,17 @@ def _call_groq(client: Groq, b64: str, prompt: str) -> dict:
     return json.loads(raw.strip())
 
 
-def parse_schedina(image_bytes: bytes) -> dict:
+def _parse_with_groq(image_bytes: bytes) -> dict:
+    """Fallback: parsing tramite Groq vision LLM."""
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     b64 = _image_to_base64(image_bytes)
 
     for attempt in range(3):
         try:
             result = _call_groq(client, b64, PROMPT)
-
-            # Se non è una schedina, ritorna subito
             if not result.get("is_schedina", True):
                 return result
 
-            # Se mancano partite, riprova con prompt specifico
             partite = result.get("partite", [])
             if len(partite) < 10:
                 retry_prompt = RETRY_PROMPT.format(n=len(partite))
@@ -124,3 +122,23 @@ def parse_schedina(image_bytes: bytes) -> dict:
                 return parse_schedina_fallback(image_bytes)
             else:
                 raise
+
+
+def parse_schedina(image_bytes: bytes) -> dict:
+    """
+    Parser primario deterministico (Tesseract + regex sul formato fisso).
+    Se non estrae esattamente 10 partite, fallback su Groq vision LLM.
+    """
+    from deterministic_parser import parse_schedina_deterministic
+
+    try:
+        result = parse_schedina_deterministic(image_bytes)
+        partite = result.get("partite", [])
+        # Se abbiamo tutte e 10 le partite, ritorna subito
+        if len(partite) == 10:
+            return result
+    except Exception:
+        pass
+
+    # Fallback su Groq vision
+    return _parse_with_groq(image_bytes)
