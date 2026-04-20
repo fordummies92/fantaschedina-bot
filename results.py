@@ -44,28 +44,47 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, normalize(a), normalize(b)).ratio()
 
 
-def find_best_match(schedina_name: str, api_matches: list) -> dict | None:
-    name_norm = normalize(schedina_name)
-
-    # Prova prima con alias diretti
+def find_best_match(home_name: str, away_name: str, match_date: datetime, api_matches: list) -> dict | None:
+    # Alias squadra casa
+    home_norm = normalize(home_name)
     for canonical, aliases in TEAM_ALIASES.items():
-        if canonical in name_norm or name_norm in canonical:
-            schedina_name = canonical
+        if canonical in home_norm or home_norm in canonical:
+            home_name = canonical
             break
+
+    # Filtra solo le partite giocate nella stessa data (±1 giorno per fuso orario)
+    date_filtered = []
+    for m in api_matches:
+        utc_date = m.get("utcDate", "")
+        try:
+            api_date = datetime.strptime(utc_date, "%Y-%m-%dT%H:%M:%SZ")
+            if abs((api_date.date() - match_date.date()).days) <= 1:
+                date_filtered.append(m)
+        except Exception:
+            pass
+
+    candidates = date_filtered if date_filtered else api_matches
 
     best_score = 0.0
     best_match = None
 
-    for m in api_matches:
-        for team_key in ("homeTeam", "awayTeam"):
-            api_name = m[team_key].get("shortName", "") or m[team_key].get("name", "")
-            score = max(
-                similarity(schedina_name, api_name),
-                similarity(schedina_name, m[team_key].get("name", "")),
-            )
-            if score > best_score:
-                best_score = score
-                best_match = m
+    for m in candidates:
+        api_home = m["homeTeam"].get("shortName", "") or m["homeTeam"].get("name", "")
+        api_away = m["awayTeam"].get("shortName", "") or m["awayTeam"].get("name", "")
+
+        home_score = max(
+            similarity(home_name, api_home),
+            similarity(home_name, m["homeTeam"].get("name", "")),
+        )
+        away_score = max(
+            similarity(away_name, api_away),
+            similarity(away_name, m["awayTeam"].get("name", "")),
+        )
+        combined = (home_score + away_score) / 2
+
+        if combined > best_score:
+            best_score = combined
+            best_match = m
 
     return best_match if best_score >= 0.45 else None
 
@@ -167,13 +186,14 @@ def get_results_for_matches(partite: list) -> list:
 
     output = []
     for partita in partite:
-        match = find_best_match(partita["casa"], api_matches)
-        # Verifica che la squadra trasferta corrisponda al match trovato
-        if match:
-            away_score = similarity(partita["trasferta"], match["awayTeam"].get("shortName", ""))
-            away_score2 = similarity(partita["trasferta"], match["awayTeam"].get("name", ""))
-            if max(away_score, away_score2) < 0.35:
-                match = None  # Falso positivo, partita sbagliata
+        try:
+            match_date = datetime.strptime(partita["data"], "%d/%m/%y")
+            if match_date.year < 2024:
+                match_date = datetime.strptime(partita["data"], "%d/%m/%Y")
+        except Exception:
+            match_date = datetime.now()
+
+        match = find_best_match(partita["casa"], partita["trasferta"], match_date, api_matches)
 
         if not match:
             output.append({"found": False, "correct": None})
