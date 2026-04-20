@@ -1,8 +1,12 @@
+import logging
 import os
 import re
+import time
 import requests
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+
+logger = logging.getLogger(__name__)
 
 FOOTBALL_DATA_URL = "https://api.football-data.org/v4/competitions/SA/matches"
 
@@ -180,10 +184,19 @@ def get_results_for_matches(partite: list) -> list:
     headers = {"X-Auth-Token": os.getenv("FOOTBALL_DATA_TOKEN")}
     params = {"dateFrom": date_from, "dateTo": date_to}
 
+    t_api = time.perf_counter()
     resp = requests.get(FOOTBALL_DATA_URL, headers=headers, params=params, timeout=10)
     resp.raise_for_status()
     api_matches = resp.json().get("matches", [])
+    logger.info(
+        "[results] football-data API: %.2fs (matches=%d, range=%s→%s)",
+        time.perf_counter() - t_api,
+        len(api_matches),
+        date_from,
+        date_to,
+    )
 
+    t_match = time.perf_counter()
     output = []
     for partita in partite:
         try:
@@ -236,4 +249,11 @@ def get_results_for_matches(partite: list) -> list:
             "played_date": played_date,
         })
 
+    matched = sum(1 for o in output if o.get("found"))
+    logger.info(
+        "[results] matching: %.3fs (%d/%d matched)",
+        time.perf_counter() - t_match,
+        matched,
+        len(output),
+    )
     return output

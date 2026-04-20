@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 
 from flask import Flask
 from dotenv import load_dotenv
@@ -39,28 +40,51 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, image_bytes: bytes):
     msg = await update.message.reply_text("📸 Schedina ricevuta, elaboro...")
+    user_id = update.effective_user.id if update.effective_user else "?"
+    req_id = f"{user_id}-{int(time.time() * 1000)}"
+    t0 = time.perf_counter()
+    logger.info("[%s] process_image: start (image_size=%d bytes)", req_id, len(image_bytes))
 
     try:
         async with gemini_semaphore:
             await msg.edit_text("🔍 Leggo la schedina...")
+            t_parse = time.perf_counter()
             schedina = await asyncio.to_thread(parse_schedina, image_bytes)
+            logger.info(
+                "[%s] parse_schedina: %.2fs (partite=%d, used_fallback=%s)",
+                req_id,
+                time.perf_counter() - t_parse,
+                len(schedina.get("partite", [])) if isinstance(schedina, dict) else -1,
+                schedina.get("used_fallback") if isinstance(schedina, dict) else None,
+            )
 
         if not schedina.get("is_schedina", True):
             await msg.delete()
+            logger.info("[%s] not a schedina, total=%.2fs", req_id, time.perf_counter() - t0)
             return
 
         if not schedina.get("partite"):
             await msg.edit_text("❌ Non sono riuscito a leggere le partite dalla schedina. Riprova con una foto più nitida.")
+            logger.info("[%s] no partite, total=%.2fs", req_id, time.perf_counter() - t0)
             return
 
         await msg.edit_text("⚽ Recupero i risultati di Serie A...")
+        t_results = time.perf_counter()
         results = await asyncio.to_thread(get_results_for_matches, schedina["partite"])
+        logger.info(
+            "[%s] get_results_for_matches: %.2fs",
+            req_id,
+            time.perf_counter() - t_results,
+        )
 
+        t_fmt = time.perf_counter()
         output = format_output(schedina, results)
+        logger.info("[%s] format_output: %.3fs", req_id, time.perf_counter() - t_fmt)
         if schedina.get("used_fallback"):
             output += "\n\n⚠️ <i>Lettura tramite OCR di riserva (quota Gemini esaurita). Alcune partite potrebbero essere mancanti — verifica la schedina.</i>"
         await msg.delete()
         await update.message.reply_text(output, parse_mode="HTML")
+        logger.info("[%s] process_image: DONE total=%.2fs", req_id, time.perf_counter() - t0)
 
     except RetryAfter as e:
         await asyncio.sleep(e.retry_after)
@@ -71,9 +95,17 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, imag
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    t_dl = time.perf_counter()
     photo = update.message.photo[-1]  # risoluzione più alta
     file = await context.bot.get_file(photo.file_id)
     image_bytes = await file.download_as_bytearray()
+    logger.info(
+        "handle_photo: download %.2fs (size=%d bytes, %dx%d)",
+        time.perf_counter() - t_dl,
+        len(image_bytes),
+        photo.width,
+        photo.height,
+    )
     await process_image(update, context, bytes(image_bytes))
 
 
@@ -82,8 +114,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not doc.mime_type or not doc.mime_type.startswith("image/"):
         await update.message.reply_text("Inviami un'immagine della schedina.")
         return
+    t_dl = time.perf_counter()
     file = await context.bot.get_file(doc.file_id)
     image_bytes = await file.download_as_bytearray()
+    logger.info(
+        "handle_document: download %.2fs (size=%d bytes)",
+        time.perf_counter() - t_dl,
+        len(image_bytes),
+    )
     await process_image(update, context, bytes(image_bytes))
 
 

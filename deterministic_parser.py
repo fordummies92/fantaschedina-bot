@@ -3,10 +3,14 @@ Parser deterministico per schedine in formato fisso.
 OCR con Tesseract + regex basato sul layout esatto del bookmaker.
 """
 import io
+import logging
 import re
+import time
 
 import pytesseract
 from PIL import Image, ImageEnhance, ImageOps
+
+logger = logging.getLogger(__name__)
 
 # Mercati noti, ordinati dal più lungo al più corto per evitare falsi match
 KNOWN_MARKETS = [
@@ -34,8 +38,21 @@ def preprocess(image_bytes: bytes) -> Image.Image:
 
 
 def ocr_text(image_bytes: bytes) -> str:
+    t_pre = time.perf_counter()
     img = preprocess(image_bytes)
-    return pytesseract.image_to_string(img, lang="ita+eng", config="--oem 3 --psm 6")
+    pre_dt = time.perf_counter() - t_pre
+    t_ocr = time.perf_counter()
+    text = pytesseract.image_to_string(img, lang="ita+eng", config="--oem 3 --psm 6")
+    ocr_dt = time.perf_counter() - t_ocr
+    logger.info(
+        "[det] preprocess: %.2fs (final=%dx%d), tesseract: %.2fs (chars=%d)",
+        pre_dt,
+        img.size[0],
+        img.size[1],
+        ocr_dt,
+        len(text),
+    )
+    return text
 
 
 def parse_market_line(line: str):
@@ -87,6 +104,8 @@ def parse_event_block(lines: list, start: int) -> dict:
         return None
     casa = team_m.group(1).strip()
     trasferta = team_m.group(2).strip()
+    if not casa or not trasferta:
+        return None
 
     # Riga mercato
     market_line = lines[start + 2]
@@ -161,6 +180,7 @@ def extract_header_fields(lines: list) -> dict:
 
 def parse_schedina_deterministic(image_bytes: bytes) -> dict:
     text = ocr_text(image_bytes)
+    t_regex = time.perf_counter()
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     header = extract_header_fields(lines)
@@ -176,6 +196,13 @@ def parse_schedina_deterministic(image_bytes: bytes) -> dict:
         event = parse_event_block(lines, i)
         if event:
             partite.append(event)
+
+    logger.info(
+        "[det] regex parsing: %.3fs (lines=%d, partite=%d)",
+        time.perf_counter() - t_regex,
+        len(lines),
+        len(partite),
+    )
 
     return {
         "is_schedina": len(partite) > 0,
