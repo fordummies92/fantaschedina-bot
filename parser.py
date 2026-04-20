@@ -38,8 +38,29 @@ Regole:
 - Restituisci SOLO il JSON, nessun testo prima o dopo"""
 
 RETRY_PROMPT = """Hai estratto solo {n} partite su 10. La schedina ne contiene esattamente 10.
-Rianalizza l'immagine con attenzione e restituisci SOLO il JSON completo con tutte e 10 le partite.
-Non omettere nessuna riga della schedina."""
+Rianalizza l'immagine con attenzione e restituisci SOLO il JSON completo con tutte e 10 le partite. Non omettere nessuna riga della schedina.
+
+Usa esattamente questa struttura:
+{{
+  "is_schedina": true,
+  "partite": [
+    {{
+      "casa": "...",
+      "trasferta": "...",
+      "data": "DD/MM/YY",
+      "ora": "HH:MM",
+      "mercato": "...",
+      "pronostico": "...",
+      "quota": 1.00
+    }}
+  ],
+  "quota_totale": 0.00,
+  "importo": 0.00,
+  "id_coupon": "...",
+  "utente": "..."
+}}
+
+Restituisci SOLO il JSON, nessun testo prima o dopo."""
 
 
 def _image_to_base64(image_bytes: bytes) -> str:

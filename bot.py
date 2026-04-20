@@ -49,6 +49,10 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, imag
             await msg.delete()
             return
 
+        if not schedina.get("partite"):
+            await msg.edit_text("❌ Non sono riuscito a leggere le partite dalla schedina. Riprova con una foto più nitida.")
+            return
+
         await msg.edit_text("⚽ Recupero i risultati di Serie A...")
         results = await asyncio.to_thread(get_results_for_matches, schedina["partite"])
 
