@@ -16,14 +16,66 @@ from results import get_results_for_matches
 
 load_dotenv()
 
-# Max 10 elaborazioni simultanee per rispettare i limiti Gemini
+# Max 10 elaborazioni simultanee
 gemini_semaphore = asyncio.Semaphore(10)
+
+# Riepilogo: per chat_id → lista risultati schedine
+_summary_data: dict[int, list[dict]] = {}
+_summary_tasks: dict[int, asyncio.Task] = {}
+SUMMARY_DELAY = 120  # secondi di inattività prima di mandare il riepilogo
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+
+def _format_summary(entries: list[dict]) -> str:
+    sorted_entries = sorted(entries, key=lambda e: e["azzeccate"], reverse=True)
+    medals = ["🥇", "🥈", "🥉"]
+    lines = ["<b>📊 Riepilogo schedine</b>\n"]
+    for i, e in enumerate(sorted_entries):
+        medal = medals[i] if i < 3 else f"{i + 1}."
+        lines.append(
+            f"{medal} <b>{e['utente']}</b>: {e['azzeccate']}/{e['totale']} "
+            f"<i>(quota: {e['quota_totale']})</i>"
+        )
+    return "\n".join(lines)
+
+
+async def _send_summary(chat_id: int, bot) -> None:
+    await asyncio.sleep(SUMMARY_DELAY)
+    entries = _summary_data.pop(chat_id, [])
+    _summary_tasks.pop(chat_id, None)
+    if len(entries) < 2:
+        return
+    text = _format_summary(entries)
+    try:
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+        logger.info("[summary] sent to chat %d (%d schedine)", chat_id, len(entries))
+    except Exception:
+        logger.exception("[summary] failed to send to chat %d", chat_id)
+
+
+def _register_summary(chat_id: int, utente: str, azzeccate: int, totale: int, quota_totale, bot):
+    _summary_data.setdefault(chat_id, [])
+    # Aggiorna se l'utente ha già una schedina in coda (riprocesso)
+    for e in _summary_data[chat_id]:
+        if e["utente"] == utente:
+            e.update({"azzeccate": azzeccate, "totale": totale, "quota_totale": quota_totale})
+            break
+    else:
+        _summary_data[chat_id].append({
+            "utente": utente,
+            "azzeccate": azzeccate,
+            "totale": totale,
+            "quota_totale": quota_totale,
+        })
+    # Azzera il timer
+    if chat_id in _summary_tasks:
+        _summary_tasks[chat_id].cancel()
+    _summary_tasks[chat_id] = asyncio.create_task(_send_summary(chat_id, bot))
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,6 +137,13 @@ async def process_image(update: Update, context: ContextTypes.DEFAULT_TYPE, imag
         await msg.delete()
         await update.message.reply_text(output, parse_mode="HTML")
         logger.info("[%s] process_image: DONE total=%.2fs", req_id, time.perf_counter() - t0)
+
+        # Riepilogo: registra risultato e schedula invio dopo inattività
+        utente = schedina.get("utente") or update.effective_user.first_name or "?"
+        azzeccate = sum(1 for r in results if r.get("correct") is True)
+        totale = sum(1 for r in results if r.get("correct") is not None)
+        chat_id = update.effective_chat.id
+        _register_summary(chat_id, utente, azzeccate, totale, schedina.get("quota_totale", "?"), context.bot)
 
     except RetryAfter as e:
         await asyncio.sleep(e.retry_after)
