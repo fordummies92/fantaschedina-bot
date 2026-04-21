@@ -140,6 +140,37 @@ def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals:
     outcome = determine_outcome(home_goals, away_goals)
     both_scored = home_goals > 0 and away_goals > 0
 
+    # Mercato combinato (es. "DC + Over/Under" → "1X + UNDER (4.5)") va valutato
+    # prima dei check singoli, altrimenti il ramo O/U fa match sul mercato
+    # "DC + OVER/UNDER" e pesca la cifra sbagliata come soglia.
+    if "+" in mercato_u or "+" in prono_u:
+        dc_match = re.search(r"\b(1X|X2|12)\b", prono_u)
+        ou_match = re.search(r"(OVER|UNDER)\s*\(\s*(\d+[.,]?\d*)\s*\)", prono_u)
+
+        dc_ok = True
+        ou_ok = True
+
+        if dc_match:
+            dc_pred = dc_match.group(1)
+            if dc_pred == "1X":
+                dc_ok = outcome in ("1", "X")
+            elif dc_pred == "X2":
+                dc_ok = outcome in ("X", "2")
+            elif dc_pred == "12":
+                dc_ok = outcome in ("1", "2")
+
+        if ou_match:
+            ou_type = ou_match.group(1)
+            threshold = float(ou_match.group(2).replace(",", "."))
+            ou_ok = total > threshold if ou_type == "OVER" else total < threshold
+
+        result = dc_ok and ou_ok
+        logger.info(
+            "[check] combined '%s' / '%s' score=%d-%d -> dc_ok=%s ou_ok=%s => %s",
+            mercato, pronostico, home_goals, away_goals, dc_ok, ou_ok, result,
+        )
+        return result
+
     if mercato_u == "1X2":
         return outcome == prono_u
 
@@ -158,38 +189,17 @@ def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals:
             return not both_scored
 
     if "O/U" in mercato_u or "OVER" in mercato_u or "UNDER" in mercato_u:
-        threshold_match = re.search(r"(\d+\.?\d*)", pronostico)
+        threshold_match = re.search(r"(\d+[.,]?\d*)", pronostico)
         if threshold_match:
-            threshold = float(threshold_match.group(1))
+            threshold = float(threshold_match.group(1).replace(",", "."))
             if "OVER" in prono_u:
                 return total > threshold
             if "UNDER" in prono_u:
                 return total < threshold
 
-    # Mercato combinato: es. DC + Over/Under → "1X + Under (4.5)"
-    if "+" in mercato_u or "+" in prono_u:
-        dc_match = re.search(r"\b(1X|X2|12)\b", prono_u)
-        ou_match = re.search(r"(OVER|UNDER)\s*\(\s*(\d+\.?\d*)\s*\)", prono_u)
-
-        dc_ok = True
-        ou_ok = True
-
-        if dc_match:
-            dc_pred = dc_match.group(1)
-            if dc_pred == "1X":
-                dc_ok = outcome in ("1", "X")
-            elif dc_pred == "X2":
-                dc_ok = outcome in ("X", "2")
-            elif dc_pred == "12":
-                dc_ok = outcome in ("1", "2")
-
-        if ou_match:
-            ou_type = ou_match.group(1)
-            threshold = float(ou_match.group(2))
-            ou_ok = total > threshold if ou_type == "OVER" else total < threshold
-
-        return dc_ok and ou_ok
-
+    logger.warning(
+        "[check] unhandled mercato='%s' pronostico='%s'", mercato, pronostico,
+    )
     return False
 
 
