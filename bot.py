@@ -48,7 +48,7 @@ async def _send_summary(chat_id: int, bot) -> None:
     await asyncio.sleep(SUMMARY_DELAY)
     entries = _summary_data.pop(chat_id, [])
     _summary_tasks.pop(chat_id, None)
-    if len(entries) < 2:
+    if not entries:
         return
     text = _format_summary(entries)
     try:
