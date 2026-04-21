@@ -222,11 +222,8 @@ def get_results_for_matches(partite: list) -> list:
     date_from = min(dates).strftime("%Y-%m-%d")
     date_to = (max(dates) + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    headers = {
-        "X-Auth-Token": os.getenv("FOOTBALL_DATA_TOKEN"),
-        "Cache-Control": "no-cache",
-    }
-    params = {"dateFrom": date_from, "dateTo": date_to}
+    headers = {"X-Auth-Token": os.getenv("FOOTBALL_DATA_TOKEN")}
+    params = {"dateFrom": date_from, "dateTo": date_to, "_t": int(time.time())}
 
     t_api = time.perf_counter()
     resp = requests.get(FOOTBALL_DATA_URL, headers=headers, params=params, timeout=10)
