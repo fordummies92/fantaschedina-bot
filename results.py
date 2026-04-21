@@ -14,9 +14,10 @@ ROME_TZ = ZoneInfo("Europe/Rome")
 _api_cache: dict[str, tuple[float, list]] = {}
 _API_CACHE_TTL = 300  # secondi
 
-API_FOOTBALL_URL = "https://v3.football.api-sports.io/fixtures"
-API_FOOTBALL_LEAGUE = 135   # Serie A
-API_FOOTBALL_SEASON = 2025  # stagione 2025/26
+THESPORTSDB_URL = "https://www.thesportsdb.com/api/v1/json/3/eventsround.php"
+THESPORTSDB_LEAGUE_ID = 4332       # Italian Serie A
+THESPORTSDB_SEASON = "2025-2026"
+SERIE_A_SEASON_START = datetime(2025, 8, 24)  # inizio stagione 2025/26
 
 # Mappatura nomi italiani → nomi usati dall'API
 TEAM_ALIASES = {
@@ -208,52 +209,58 @@ def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals:
     return False
 
 
-def _normalize_fixture(m: dict) -> dict:
-    """Converte una fixture api-football nel formato interno usato da find_best_match."""
-    fixture = m.get("fixture", {})
-    teams = m.get("teams", {})
-    goals = m.get("goals", {})
-    league = m.get("league", {})
+def _estimate_round(match_date: datetime) -> int:
+    """Stima la giornata Serie A dalla data della partita."""
+    days = (match_date - SERIE_A_SEASON_START).days
+    return max(1, min(38, round(days / 7)))
 
-    status_short = fixture.get("status", {}).get("short", "")
-    status = "FINISHED" if status_short == "FT" else status_short
 
-    # matchday da "Regular Season - 33" → 33
-    matchday = None
-    round_str = league.get("round", "")
-    round_m = re.search(r"(\d+)$", round_str)
-    if round_m:
-        matchday = int(round_m.group(1))
+def _fetch_round(round_num: int) -> list:
+    """Scarica le partite di una giornata da TheSportsDB."""
+    resp = requests.get(
+        THESPORTSDB_URL,
+        params={"id": THESPORTSDB_LEAGUE_ID, "r": round_num, "s": THESPORTSDB_SEASON},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json().get("events") or []
 
-    # data in formato UTC (api-football include offset fuso)
-    raw_date = fixture.get("date", "")
-    utc_date = raw_date
+
+def _normalize_sportsdb(e: dict, round_num: int) -> dict:
+    """Converte un evento TheSportsDB nel formato interno."""
+    date_str = e.get("dateEvent", "")
+    time_str = e.get("strTime", "00:00:00") or "00:00:00"
+    utc_date = ""
     try:
-        from datetime import timezone as tz
-        dt = datetime.fromisoformat(raw_date)
-        utc_date = dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dt = datetime.strptime(f"{date_str} {time_str[:5]}", "%Y-%m-%d %H:%M")
+        utc_date = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         pass
+
+    status_raw = e.get("strStatus", "")
+    status = "FINISHED" if status_raw == "Match Finished" else status_raw
+
+    home_score = e.get("intHomeScore")
+    away_score = e.get("intAwayScore")
+    try:
+        home_score = int(home_score) if home_score is not None else None
+        away_score = int(away_score) if away_score is not None else None
+    except Exception:
+        home_score = away_score = None
 
     return {
         "utcDate": utc_date,
         "status": status,
-        "matchday": matchday,
-        "lastUpdated": fixture.get("timestamp", ""),
+        "matchday": round_num,
         "homeTeam": {
-            "name": teams.get("home", {}).get("name", ""),
-            "shortName": teams.get("home", {}).get("name", ""),
+            "name": e.get("strHomeTeam", ""),
+            "shortName": e.get("strHomeTeam", ""),
         },
         "awayTeam": {
-            "name": teams.get("away", {}).get("name", ""),
-            "shortName": teams.get("away", {}).get("name", ""),
+            "name": e.get("strAwayTeam", ""),
+            "shortName": e.get("strAwayTeam", ""),
         },
-        "score": {
-            "fullTime": {
-                "home": goals.get("home"),
-                "away": goals.get("away"),
-            }
-        },
+        "score": {"fullTime": {"home": home_score, "away": away_score}},
     }
 
 
@@ -276,14 +283,6 @@ def get_results_for_matches(partite: list) -> list:
     date_from = min(dates).strftime("%Y-%m-%d")
     date_to = (max(dates) + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    headers = {"x-apisports-key": os.getenv("API_FOOTBALL_KEY")}
-    params = {
-        "league": API_FOOTBALL_LEAGUE,
-        "season": API_FOOTBALL_SEASON,
-        "from": date_from,
-        "to": date_to,
-    }
-
     cache_key = f"{date_from}_{date_to}"
     cached = _api_cache.get(cache_key)
     if cached and (time.time() - cached[0]) < _API_CACHE_TTL:
@@ -294,24 +293,34 @@ def get_results_for_matches(partite: list) -> list:
         )
     else:
         t_api = time.perf_counter()
-        for attempt in range(3):
-            resp = requests.get(API_FOOTBALL_URL, headers=headers, params=params, timeout=10)
-            if resp.status_code == 429:
-                wait = 15 * (attempt + 1)
-                logger.warning("[results] api-football 429, retry in %ds (attempt %d/3)", wait, attempt + 1)
-                time.sleep(wait)
+        estimated_round = _estimate_round(min(dates))
+        date_from_dt = datetime.strptime(date_from, "%Y-%m-%d")
+        date_to_dt = datetime.strptime(date_to, "%Y-%m-%d")
+
+        all_events = []
+        for delta in (-1, 0, 1):
+            r = estimated_round + delta
+            if r < 1 or r > 38:
                 continue
-            resp.raise_for_status()
-            break
-        else:
-            resp.raise_for_status()
-        raw_matches = resp.json().get("response", [])
-        api_matches = [_normalize_fixture(m) for m in raw_matches]
+            all_events.extend(_fetch_round(r))
+
+        # Filtra per data nella finestra della schedina (±1 giorno)
+        api_matches = []
+        for e in all_events:
+            try:
+                e_date = datetime.strptime(e.get("dateEvent", ""), "%Y-%m-%d")
+                if date_from_dt - timedelta(days=1) <= e_date <= date_to_dt + timedelta(days=1):
+                    round_num = int(e.get("intRound") or estimated_round)
+                    api_matches.append(_normalize_sportsdb(e, round_num))
+            except Exception:
+                pass
+
         _api_cache[cache_key] = (time.time(), api_matches)
         logger.info(
-            "[results] api-football API: %.2fs (matches=%d, range=%s→%s)",
+            "[results] thesportsdb: %.2fs (matches=%d, round~%d, range=%s→%s)",
             time.perf_counter() - t_api,
             len(api_matches),
+            estimated_round,
             date_from,
             date_to,
         )
