@@ -120,11 +120,13 @@ def _parse_with_groq(image_bytes: bytes) -> dict:
                 logger.info("[parser] groq total: %.2fs (not-schedina)", time.perf_counter() - t_total)
                 return result
 
+            result = _clean_partite(result)
             partite = result.get("partite", [])
             if len(partite) < 10:
-                logger.info("[parser] groq retry: only %d partite, retrying", len(partite))
+                logger.info("[parser] groq retry: only %d valid partite, retrying", len(partite))
                 retry_prompt = RETRY_PROMPT.format(n=len(partite))
                 result = _call_groq(client, b64, retry_prompt, label="groq retry")
+                result = _clean_partite(result)
 
             logger.info(
                 "[parser] groq total: %.2fs (partite=%d)",
@@ -183,7 +185,7 @@ def parse_schedina(image_bytes: bytes) -> dict:
     Fallback: Tesseract deterministico, solo se Groq va in 429 o errore grave.
     """
     try:
-        result = _clean_partite(_parse_with_groq(image_bytes))
+        result = _parse_with_groq(image_bytes)
         return result
     except Exception as e:
         logger.warning("[parser] Groq failed (%s), falling back to deterministic", e)
