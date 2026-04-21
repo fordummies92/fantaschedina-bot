@@ -101,7 +101,7 @@ def _call_groq(client: Groq, b64: str, prompt: str, label: str = "groq") -> dict
     )
     logger.info("[parser] %s API call: %.2fs", label, time.perf_counter() - t)
     raw = response.choices[0].message.content.strip()
-    logger.info("[parser] %s raw output (len=%d): %s", label, len(raw), raw[:800])
+    logger.info("[parser] %s raw output (len=%d): %s", label, len(raw), raw)
     if raw.startswith("```"):
         parts = raw.split("```")
         raw = parts[1]
