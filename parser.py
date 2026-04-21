@@ -10,18 +10,19 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-PROMPT = """Analizza questa schedina di scommesse sportive italiana e restituisci SOLO un JSON valido, senza testo aggiuntivo.
+PROMPT = """Analizza questa schedina contenente un'intera giornata di Serie A, quindi 10 partite. Restituisci SOLO un JSON valido, senza testo aggiuntivo.
 
-Struttura richiesta:
+Struttura richiesta (sostituisci i valori di esempio con quelli reali della schedina):
 {
+  "is_schedina": true,
   "partite": [
     {
-      "casa": "nome squadra casa",
-      "trasferta": "nome squadra trasferta",
-      "data": "DD/MM/YY",
-      "ora": "HH:MM",
-      "mercato": "tipo mercato esatto dalla schedina (es: 1X2, GG/NG, DC, O/U FT, DC + Over/Under)",
-      "pronostico": "scelta esatta dalla schedina (es: 1, X, 2, GG, NG, 1X, X2, Over (2.5), Under (4.5), 1X + Under (4.5))",
+      "casa": "Juventus",
+      "trasferta": "Inter",
+      "data": "20/04/26",
+      "ora": "20:45",
+      "mercato": "1X2",
+      "pronostico": "1",
       "quota": 1.27
     }
   ],
@@ -31,13 +32,15 @@ Struttura richiesta:
   "utente": "fcpollice"
 }
 
+Il campo "mercato" contiene il tipo di scommessa. Valori possibili: 1X2, GG/NG, DC, O/U FT, DC + Over/Under.
+Il campo "pronostico" contiene la scelta esatta. Esempi: 1, X, 2, GG, NG, 1X, X2, Over (2.5), Under (4.5), 1X + Under (4.5).
+
 Regole:
 - Se l'immagine NON è una schedina di scommesse sportive, restituisci SOLO: {"is_schedina": false}
-- Se è una schedina, aggiungi "is_schedina": true al JSON
-- Estrai sempre TUTTE e 10 le partite presenti nella schedina
-- Copia il pronostico esattamente come appare
-- quota_totale è il numero accanto a "QUOTA TOTALE" (non la vincita)
-- Il campo "data" deve essere nel formato DD/MM/YY con l'anno a 2 cifre (es: 20/04/26 per il 20 aprile 2026)
+- Estrai TUTTE e 10 le partite presenti nella schedina, senza saltarne nessuna
+- Copia mercato e pronostico esattamente come appaiono nella schedina
+- quota_totale è il numero accanto a "QUOTA TOTALE" (non la vincita potenziale)
+- Il campo "data" deve essere nel formato DD/MM/YY con l'anno a 2 cifre (es: 20/04/26)
 - Restituisci SOLO il JSON, nessun testo prima o dopo"""
 
 RETRY_PROMPT = """Hai estratto solo {n} partite su 10. La schedina ne contiene esattamente 10.
@@ -93,6 +96,7 @@ def _call_groq(client: Groq, b64: str, prompt: str, label: str = "groq") -> dict
     )
     logger.info("[parser] %s API call: %.2fs", label, time.perf_counter() - t)
     raw = response.choices[0].message.content.strip()
+    logger.info("[parser] %s raw output (len=%d): %s", label, len(raw), raw[:800])
     if raw.startswith("```"):
         parts = raw.split("```")
         raw = parts[1]
@@ -102,7 +106,7 @@ def _call_groq(client: Groq, b64: str, prompt: str, label: str = "groq") -> dict
 
 
 def _parse_with_groq(image_bytes: bytes) -> dict:
-    """Fallback: parsing tramite Groq vision LLM."""
+    """Parser primario: Groq vision LLM."""
     t_total = time.perf_counter()
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     t_b64 = time.perf_counter()
@@ -133,10 +137,6 @@ def _parse_with_groq(image_bytes: bytes) -> dict:
             if "429" in str(e) and attempt < 2:
                 logger.warning("[parser] groq 429, sleep 10s (attempt %d)", attempt + 1)
                 time.sleep(10)
-            elif "429" in str(e):
-                logger.warning("[parser] groq 429 exhausted, fallback to tesseract")
-                from fallback_parser import parse_schedina_fallback
-                return parse_schedina_fallback(image_bytes)
             else:
                 raise
 
@@ -157,11 +157,8 @@ def _clean_partite(result: dict) -> dict:
     return result
 
 
-def parse_schedina(image_bytes: bytes) -> dict:
-    """
-    Parser primario deterministico (Tesseract + regex sul formato fisso).
-    Se non estrae esattamente 10 partite, fallback su Groq vision LLM.
-    """
+def _parse_with_deterministic(image_bytes: bytes) -> dict | None:
+    """Fallback deterministico (Tesseract + regex). Ritorna None se fallisce."""
     from deterministic_parser import parse_schedina_deterministic
 
     t_det = time.perf_counter()
@@ -174,12 +171,23 @@ def parse_schedina(image_bytes: bytes) -> dict:
             time.perf_counter() - t_det,
             len(partite),
         )
-        # Se abbiamo tutte e 10 le partite, ritorna subito
-        if len(partite) == 10:
-            return result
+        return result if partite else None
     except Exception:
         logger.exception("[parser] deterministic failed in %.2fs", time.perf_counter() - t_det)
+        return None
 
-    # Fallback su Groq vision
-    logger.info("[parser] falling back to Groq vision")
-    return _clean_partite(_parse_with_groq(image_bytes))
+
+def parse_schedina(image_bytes: bytes) -> dict:
+    """
+    Parser primario: Groq vision LLM (veloce, ~5s).
+    Fallback: Tesseract deterministico, solo se Groq va in 429 o errore grave.
+    """
+    try:
+        result = _clean_partite(_parse_with_groq(image_bytes))
+        return result
+    except Exception as e:
+        logger.warning("[parser] Groq failed (%s), falling back to deterministic", e)
+        result = _parse_with_deterministic(image_bytes)
+        if result:
+            return result
+        raise
