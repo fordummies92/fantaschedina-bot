@@ -14,7 +14,9 @@ ROME_TZ = ZoneInfo("Europe/Rome")
 _api_cache: dict[str, tuple[float, list]] = {}
 _API_CACHE_TTL = 300  # secondi
 
-FOOTBALL_DATA_URL = "https://api.football-data.org/v4/competitions/SA/matches"
+API_FOOTBALL_URL = "https://v3.football.api-sports.io/fixtures"
+API_FOOTBALL_LEAGUE = 135   # Serie A
+API_FOOTBALL_SEASON = 2025  # stagione 2025/26
 
 # Mappatura nomi italiani → nomi usati dall'API
 TEAM_ALIASES = {
@@ -206,6 +208,55 @@ def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals:
     return False
 
 
+def _normalize_fixture(m: dict) -> dict:
+    """Converte una fixture api-football nel formato interno usato da find_best_match."""
+    fixture = m.get("fixture", {})
+    teams = m.get("teams", {})
+    goals = m.get("goals", {})
+    league = m.get("league", {})
+
+    status_short = fixture.get("status", {}).get("short", "")
+    status = "FINISHED" if status_short == "FT" else status_short
+
+    # matchday da "Regular Season - 33" → 33
+    matchday = None
+    round_str = league.get("round", "")
+    round_m = re.search(r"(\d+)$", round_str)
+    if round_m:
+        matchday = int(round_m.group(1))
+
+    # data in formato UTC (api-football include offset fuso)
+    raw_date = fixture.get("date", "")
+    utc_date = raw_date
+    try:
+        from datetime import timezone as tz
+        dt = datetime.fromisoformat(raw_date)
+        utc_date = dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        pass
+
+    return {
+        "utcDate": utc_date,
+        "status": status,
+        "matchday": matchday,
+        "lastUpdated": fixture.get("timestamp", ""),
+        "homeTeam": {
+            "name": teams.get("home", {}).get("name", ""),
+            "shortName": teams.get("home", {}).get("name", ""),
+        },
+        "awayTeam": {
+            "name": teams.get("away", {}).get("name", ""),
+            "shortName": teams.get("away", {}).get("name", ""),
+        },
+        "score": {
+            "fullTime": {
+                "home": goals.get("home"),
+                "away": goals.get("away"),
+            }
+        },
+    }
+
+
 def get_results_for_matches(partite: list) -> list:
     dates = []
     for p in partite:
@@ -225,34 +276,40 @@ def get_results_for_matches(partite: list) -> list:
     date_from = min(dates).strftime("%Y-%m-%d")
     date_to = (max(dates) + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    headers = {"X-Auth-Token": os.getenv("FOOTBALL_DATA_TOKEN")}
-    params = {"dateFrom": date_from, "dateTo": date_to, "_t": int(time.time())}
+    headers = {"x-apisports-key": os.getenv("API_FOOTBALL_KEY")}
+    params = {
+        "league": API_FOOTBALL_LEAGUE,
+        "season": API_FOOTBALL_SEASON,
+        "from": date_from,
+        "to": date_to,
+    }
 
     cache_key = f"{date_from}_{date_to}"
     cached = _api_cache.get(cache_key)
     if cached and (time.time() - cached[0]) < _API_CACHE_TTL:
         api_matches = cached[1]
         logger.info(
-            "[results] football-data cache HIT (matches=%d, range=%s→%s, age=%.0fs)",
+            "[results] cache HIT (matches=%d, range=%s→%s, age=%.0fs)",
             len(api_matches), date_from, date_to, time.time() - cached[0],
         )
     else:
         t_api = time.perf_counter()
         for attempt in range(3):
-            resp = requests.get(FOOTBALL_DATA_URL, headers=headers, params=params, timeout=10)
+            resp = requests.get(API_FOOTBALL_URL, headers=headers, params=params, timeout=10)
             if resp.status_code == 429:
                 wait = 15 * (attempt + 1)
-                logger.warning("[results] football-data 429, retry in %ds (attempt %d/3)", wait, attempt + 1)
+                logger.warning("[results] api-football 429, retry in %ds (attempt %d/3)", wait, attempt + 1)
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
             break
         else:
             resp.raise_for_status()
-        api_matches = resp.json().get("matches", [])
+        raw_matches = resp.json().get("response", [])
+        api_matches = [_normalize_fixture(m) for m in raw_matches]
         _api_cache[cache_key] = (time.time(), api_matches)
         logger.info(
-            "[results] football-data API: %.2fs (matches=%d, range=%s→%s)",
+            "[results] api-football API: %.2fs (matches=%d, range=%s→%s)",
             time.perf_counter() - t_api,
             len(api_matches),
             date_from,
