@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 
+_api_cache: dict[str, tuple[float, list]] = {}
+_API_CACHE_TTL = 300  # secondi
+
 FOOTBALL_DATA_URL = "https://api.football-data.org/v4/competitions/SA/matches"
 
 # Mappatura nomi italiani → nomi usati dall'API
@@ -225,26 +228,36 @@ def get_results_for_matches(partite: list) -> list:
     headers = {"X-Auth-Token": os.getenv("FOOTBALL_DATA_TOKEN")}
     params = {"dateFrom": date_from, "dateTo": date_to, "_t": int(time.time())}
 
-    t_api = time.perf_counter()
-    for attempt in range(3):
-        resp = requests.get(FOOTBALL_DATA_URL, headers=headers, params=params, timeout=10)
-        if resp.status_code == 429:
-            wait = 15 * (attempt + 1)
-            logger.warning("[results] football-data 429, retry in %ds (attempt %d/3)", wait, attempt + 1)
-            time.sleep(wait)
-            continue
-        resp.raise_for_status()
-        break
+    cache_key = f"{date_from}_{date_to}"
+    cached = _api_cache.get(cache_key)
+    if cached and (time.time() - cached[0]) < _API_CACHE_TTL:
+        api_matches = cached[1]
+        logger.info(
+            "[results] football-data cache HIT (matches=%d, range=%s→%s, age=%.0fs)",
+            len(api_matches), date_from, date_to, time.time() - cached[0],
+        )
     else:
-        resp.raise_for_status()
-    api_matches = resp.json().get("matches", [])
-    logger.info(
-        "[results] football-data API: %.2fs (matches=%d, range=%s→%s)",
-        time.perf_counter() - t_api,
-        len(api_matches),
-        date_from,
-        date_to,
-    )
+        t_api = time.perf_counter()
+        for attempt in range(3):
+            resp = requests.get(FOOTBALL_DATA_URL, headers=headers, params=params, timeout=10)
+            if resp.status_code == 429:
+                wait = 15 * (attempt + 1)
+                logger.warning("[results] football-data 429, retry in %ds (attempt %d/3)", wait, attempt + 1)
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            break
+        else:
+            resp.raise_for_status()
+        api_matches = resp.json().get("matches", [])
+        _api_cache[cache_key] = (time.time(), api_matches)
+        logger.info(
+            "[results] football-data API: %.2fs (matches=%d, range=%s→%s)",
+            time.perf_counter() - t_api,
+            len(api_matches),
+            date_from,
+            date_to,
+        )
 
     t_match = time.perf_counter()
     output = []
