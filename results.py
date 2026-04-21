@@ -226,8 +226,17 @@ def get_results_for_matches(partite: list) -> list:
     params = {"dateFrom": date_from, "dateTo": date_to, "_t": int(time.time())}
 
     t_api = time.perf_counter()
-    resp = requests.get(FOOTBALL_DATA_URL, headers=headers, params=params, timeout=10)
-    resp.raise_for_status()
+    for attempt in range(3):
+        resp = requests.get(FOOTBALL_DATA_URL, headers=headers, params=params, timeout=10)
+        if resp.status_code == 429:
+            wait = 15 * (attempt + 1)
+            logger.warning("[results] football-data 429, retry in %ds (attempt %d/3)", wait, attempt + 1)
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        break
+    else:
+        resp.raise_for_status()
     api_matches = resp.json().get("matches", [])
     logger.info(
         "[results] football-data API: %.2fs (matches=%d, range=%s→%s)",
