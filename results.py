@@ -3,10 +3,13 @@ import os
 import re
 import time
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+ROME_TZ = ZoneInfo("Europe/Rome")
 
 FOOTBALL_DATA_URL = "https://api.football-data.org/v4/competitions/SA/matches"
 
@@ -90,7 +93,35 @@ def find_best_match(home_name: str, away_name: str, match_date: datetime, api_ma
             best_score = combined
             best_match = m
 
-    return best_match if best_score >= 0.45 else None
+    if best_match and best_score >= 0.45:
+        picked_home = best_match["homeTeam"].get("name", "?")
+        picked_away = best_match["awayTeam"].get("name", "?")
+        picked_utc = best_match.get("utcDate", "?")
+        picked_status = best_match.get("status", "?")
+        picked_score = best_match.get("score", {}).get("fullTime", {})
+        logger.info(
+            "[match] '%s - %s' [%s] -> '%s - %s' @ %s status=%s score=%s-%s sim=%.2f",
+            home_name,
+            away_name,
+            match_date.strftime("%d/%m/%y"),
+            picked_home,
+            picked_away,
+            picked_utc,
+            picked_status,
+            picked_score.get("home"),
+            picked_score.get("away"),
+            best_score,
+        )
+        return best_match
+    logger.warning(
+        "[match] NO MATCH for '%s - %s' [%s] (best_sim=%.2f, candidates=%d)",
+        home_name,
+        away_name,
+        match_date.strftime("%d/%m/%y"),
+        best_score,
+        len(candidates),
+    )
+    return None
 
 
 def determine_outcome(home_goals: int, away_goals: int) -> str:
@@ -222,7 +253,8 @@ def get_results_for_matches(partite: list) -> list:
         played_date = ""
         if utc_date:
             try:
-                played_date = datetime.strptime(utc_date, "%Y-%m-%dT%H:%M:%SZ").strftime("%d/%m/%Y %H:%M")
+                dt_utc = datetime.strptime(utc_date, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                played_date = dt_utc.astimezone(ROME_TZ).strftime("%d/%m/%Y %H:%M")
             except Exception:
                 pass
 
