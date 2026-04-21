@@ -46,18 +46,23 @@ Regole:
 RETRY_PROMPT = """Hai estratto solo {n} partite su 10. La schedina ne contiene esattamente 10.
 Rianalizza l'immagine con attenzione e restituisci SOLO il JSON completo con tutte e 10 le partite. Non omettere nessuna riga della schedina.
 
+Regole importanti:
+- Ogni partita DEVE avere "casa" e "trasferta" con il nome reale della squadra (mai stringa vuota, mai "...", mai placeholder)
+- Se non riesci a leggere un nome, scrivi il nome parziale che riesci a vedere
+- Restituisci esattamente 10 oggetti nell'array "partite"
+
 Usa esattamente questa struttura:
 {{
   "is_schedina": true,
   "partite": [
     {{
-      "casa": "...",
-      "trasferta": "...",
-      "data": "DD/MM/YY",
-      "ora": "HH:MM",
-      "mercato": "...",
-      "pronostico": "...",
-      "quota": 1.00
+      "casa": "Juventus",
+      "trasferta": "Inter",
+      "data": "20/04/26",
+      "ora": "20:45",
+      "mercato": "1X2",
+      "pronostico": "1",
+      "quota": 1.27
     }}
   ],
   "quota_totale": 0.00,
@@ -186,6 +191,12 @@ def parse_schedina(image_bytes: bytes) -> dict:
     """
     try:
         result = _parse_with_groq(image_bytes)
+        if len(result.get("partite", [])) < 10:
+            logger.warning("[parser] Groq returned %d partite after retries, trying deterministic", len(result.get("partite", [])))
+            det = _parse_with_deterministic(image_bytes)
+            if det and len(det.get("partite", [])) > len(result.get("partite", [])):
+                logger.info("[parser] deterministic has more partite (%d), using it", len(det.get("partite", [])))
+                return det
         return result
     except Exception as e:
         logger.warning("[parser] Groq failed (%s), falling back to deterministic", e)
