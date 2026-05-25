@@ -16,8 +16,10 @@ from results import get_results_for_matches
 
 load_dotenv()
 
-# Max 10 elaborazioni simultanee
-gemini_semaphore = asyncio.Semaphore(10)
+# Max 3 elaborazioni simultanee. Groq free tier rate-limita ben prima dei 10
+# chiamate parallele (immagini = molti token), generando 429 e penali di
+# attesa di vari secondi. Con 3 in parallelo restiamo dentro i limiti.
+gemini_semaphore = asyncio.Semaphore(3)
 
 # Riepilogo: per chat_id → lista risultati schedine
 _summary_data: dict[int, list[dict]] = {}

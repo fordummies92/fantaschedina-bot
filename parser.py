@@ -142,8 +142,14 @@ def _parse_with_groq(image_bytes: bytes) -> dict:
 
         except Exception as e:
             if "429" in str(e) and attempt < 2:
-                logger.warning("[parser] groq 429, sleep 10s (attempt %d)", attempt + 1)
-                time.sleep(10)
+                # Backoff esponenziale: 2s, 4s. Più rapido del fisso a 10s e
+                # comunque sufficiente per far rientrare la finestra di rate-limit
+                # sui modelli vision di Groq free tier.
+                backoff = 2 ** (attempt + 1)
+                logger.warning(
+                    "[parser] groq 429, sleep %ds (attempt %d)", backoff, attempt + 1,
+                )
+                time.sleep(backoff)
             else:
                 raise
 
