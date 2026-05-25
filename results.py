@@ -168,6 +168,16 @@ def _check_token(token: str, outcome: str, total: int, both_scored: bool) -> boo
         threshold = float(ou_match.group(2).replace(",", "."))
         return total > threshold if ou_type == "OVER" else total < threshold
 
+    # Multigoal: range inclusivo di gol totali (es. "1-5 GOALS", "2-3", "MULTIGOAL 1-3")
+    # Accetta: "1-5 GOALS", "1-5", "MULTIGOAL 1-5", "GOALS 1-5"
+    mg_match = re.match(
+        r"^(?:MULTIGOAL\s+|GOALS?\s+)?(\d+)\s*-\s*(\d+)(?:\s+GOALS?)?\s*$", t
+    )
+    if mg_match:
+        low = int(mg_match.group(1))
+        high = int(mg_match.group(2))
+        return low <= total <= high
+
     return None
 
 
@@ -181,6 +191,21 @@ def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals:
     legata al parser che classifica lo stesso tipo di scommessa in modi diversi.
     """
     prono_u = pronostico.upper().strip()
+    mercato_u = (mercato or "").upper().strip()
+
+    # Fallback: il parser a volte mette il pronostico nel campo `mercato`
+    # lasciando `pronostico` vuoto. Se il pronostico è vuoto ma il mercato
+    # è un valore che può essere un pronostico (1X, X2, GG, OVER 2.5, ecc.),
+    # usa il mercato come pronostico.
+    if not prono_u and mercato_u:
+        # Verifico se il mercato è un pronostico valido provando a parsarlo
+        if _check_token(mercato_u, "1", 0, False) is not None or "+" in mercato_u:
+            logger.info(
+                "[check] pronostico vuoto, uso il mercato come pronostico: '%s'",
+                mercato,
+            )
+            prono_u = mercato_u
+
     total = home_goals + away_goals
     outcome = determine_outcome(home_goals, away_goals)
     both_scored = home_goals > 0 and away_goals > 0
