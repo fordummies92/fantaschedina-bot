@@ -238,7 +238,7 @@ def _normalize_sportsdb(e: dict, round_num: int) -> dict:
         pass
 
     status_raw = e.get("strStatus", "")
-    status = "FINISHED" if status_raw == "Match Finished" else status_raw
+    status = "FINISHED" if status_raw in ("Match Finished", "FT", "AET", "PEN", "AP") else status_raw
 
     home_score = e.get("intHomeScore")
     away_score = e.get("intAwayScore")
