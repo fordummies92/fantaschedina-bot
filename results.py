@@ -178,6 +178,13 @@ def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals:
         return result
 
     if mercato_u == "1X2":
+        # Doppia chance anche su mercato 1X2 (es. pronostico "X2", "1X", "12")
+        if prono_u == "1X":
+            return outcome in ("1", "X")
+        if prono_u == "X2":
+            return outcome in ("X", "2")
+        if prono_u == "12":
+            return outcome in ("1", "2")
         return outcome == prono_u
 
     if mercato_u in ("DC", "DOPPIA CHANCE"):
