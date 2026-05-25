@@ -139,81 +139,81 @@ def determine_outcome(home_goals: int, away_goals: int) -> str:
         return "2"
 
 
+def _check_token(token: str, outcome: str, total: int, both_scored: bool) -> bool | None:
+    """Valuta un singolo token di pronostico. Restituisce None se non riconosciuto."""
+    t = token.strip().upper()
+
+    # Esito singolo
+    if t in ("1", "X", "2"):
+        return outcome == t
+
+    # Doppia chance
+    if t == "1X":
+        return outcome in ("1", "X")
+    if t == "X2":
+        return outcome in ("X", "2")
+    if t == "12":
+        return outcome in ("1", "2")
+
+    # Goal / No Goal
+    if t == "GG":
+        return both_scored
+    if t == "NG":
+        return not both_scored
+
+    # Over / Under (con o senza parentesi: "OVER 2.5", "OVER (2.5)", "UNDER2,5")
+    ou_match = re.match(r"^(OVER|UNDER)\s*\(?\s*(\d+[.,]?\d*)\s*\)?\s*$", t)
+    if ou_match:
+        ou_type = ou_match.group(1)
+        threshold = float(ou_match.group(2).replace(",", "."))
+        return total > threshold if ou_type == "OVER" else total < threshold
+
+    return None
+
+
 def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals: int) -> bool:
-    mercato_u = mercato.upper().strip()
+    """
+    Verifica se il pronostico è azzeccato.
+
+    Il campo `mercato` viene ignorato: il tipo di scommessa è dedotto unicamente
+    dal `pronostico`, che è non ambiguo (es. "X2" → doppia chance, "OVER 2.5"
+    → over/under, "1X + UNDER (2.5)" → combinata). Questo elimina la fragilità
+    legata al parser che classifica lo stesso tipo di scommessa in modi diversi.
+    """
     prono_u = pronostico.upper().strip()
     total = home_goals + away_goals
     outcome = determine_outcome(home_goals, away_goals)
     both_scored = home_goals > 0 and away_goals > 0
 
-    # Mercato combinato (es. "DC + Over/Under" → "1X + UNDER (4.5)") va valutato
-    # prima dei check singoli, altrimenti il ramo O/U fa match sul mercato
-    # "DC + OVER/UNDER" e pesca la cifra sbagliata come soglia.
-    if "+" in mercato_u or "+" in prono_u:
-        dc_match = re.search(r"\b(1X|X2|12)\b", prono_u)
-        ou_match = re.search(r"(OVER|UNDER)\s*\(\s*(\d+[.,]?\d*)\s*\)", prono_u)
-
-        dc_ok = True
-        ou_ok = True
-
-        if dc_match:
-            dc_pred = dc_match.group(1)
-            if dc_pred == "1X":
-                dc_ok = outcome in ("1", "X")
-            elif dc_pred == "X2":
-                dc_ok = outcome in ("X", "2")
-            elif dc_pred == "12":
-                dc_ok = outcome in ("1", "2")
-
-        if ou_match:
-            ou_type = ou_match.group(1)
-            threshold = float(ou_match.group(2).replace(",", "."))
-            ou_ok = total > threshold if ou_type == "OVER" else total < threshold
-
-        result = dc_ok and ou_ok
+    # Pronostico combinato (es. "1X + UNDER (2.5)"): tutti i token devono passare
+    if "+" in prono_u:
+        tokens = [t.strip() for t in prono_u.split("+") if t.strip()]
+        token_results = []
+        for tok in tokens:
+            r = _check_token(tok, outcome, total, both_scored)
+            if r is None:
+                logger.warning(
+                    "[check] token non riconosciuto in combinato: '%s' (full='%s')",
+                    tok, pronostico,
+                )
+                return False
+            token_results.append((tok, r))
+        result = all(r for _, r in token_results)
         logger.info(
-            "[check] combined '%s' / '%s' score=%d-%d -> dc_ok=%s ou_ok=%s => %s",
-            mercato, pronostico, home_goals, away_goals, dc_ok, ou_ok, result,
+            "[check] combined pronostico='%s' score=%d-%d tokens=%s => %s",
+            pronostico, home_goals, away_goals, token_results, result,
         )
         return result
 
-    if mercato_u == "1X2":
-        # Doppia chance anche su mercato 1X2 (es. pronostico "X2", "1X", "12")
-        if prono_u == "1X":
-            return outcome in ("1", "X")
-        if prono_u == "X2":
-            return outcome in ("X", "2")
-        if prono_u == "12":
-            return outcome in ("1", "2")
-        return outcome == prono_u
-
-    if mercato_u in ("DC", "DOPPIA CHANCE"):
-        if prono_u == "1X":
-            return outcome in ("1", "X")
-        if prono_u == "X2":
-            return outcome in ("X", "2")
-        if prono_u == "12":
-            return outcome in ("1", "2")
-
-    if "GG" in mercato_u or "NG" in mercato_u:
-        if prono_u == "GG":
-            return both_scored
-        if prono_u == "NG":
-            return not both_scored
-
-    if "O/U" in mercato_u or "OVER" in mercato_u or "UNDER" in mercato_u:
-        threshold_match = re.search(r"(\d+[.,]?\d*)", pronostico)
-        if threshold_match:
-            threshold = float(threshold_match.group(1).replace(",", "."))
-            if "OVER" in prono_u:
-                return total > threshold
-            if "UNDER" in prono_u:
-                return total < threshold
-
-    logger.warning(
-        "[check] unhandled mercato='%s' pronostico='%s'", mercato, pronostico,
-    )
-    return False
+    # Pronostico singolo
+    r = _check_token(prono_u, outcome, total, both_scored)
+    if r is None:
+        logger.warning(
+            "[check] pronostico non riconosciuto: '%s' (mercato='%s', ignorato)",
+            pronostico, mercato,
+        )
+        return False
+    return r
 
 
 def _estimate_round(match_date: datetime) -> int:
