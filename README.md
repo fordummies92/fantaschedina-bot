@@ -1,46 +1,53 @@
 # Fantaschedina Bot 🤖⚽
 
-Bot Telegram per la gestione della **Fantaschedina di Serie A**. Analizza le foto delle schedine, recupera i risultati reali e mostra quante partite sono state azzeccate.
+A Telegram bot that manages the **Fantaschedina** prediction game for Serie A. It reads betting-slip photos, fetches the real match results, and tells you how many predictions were correct.
 
-## Come funziona
+## How it works
 
-1. Manda la **foto della schedina** al bot su Telegram
-2. Il bot legge i pronostici tramite AI (Gemini)
-3. Recupera i risultati reali di Serie A tramite API
-4. Risponde con il confronto partita per partita, le partite azzeccate e la quota
+1. Send a **photo of your betting slip** to the bot on Telegram
+2. The bot reads the predictions using AI (Gemini)
+3. It fetches the real Serie A results via API
+4. It replies with a match-by-match comparison, the number of correct picks, and the odds
 
-## Output esempio
+## Example output
 
 ```
-📋 FANTASCHEDINA Serie A — Giornata 29
+📋 FANTASCHEDINA Serie A — Matchday 29
 👤 fcpollice
 
 ✅ Torino - Parma  (13/03/2026 20:45)
-   Pronostico: 1X  →  Risultato: 0-0
+   Prediction: 1X  →  Result: 0-0
 ❌ Inter - Atalanta  (14/03/2026 15:00)
-   Pronostico: 1  →  Risultato: 1-2
+   Prediction: 1  →  Result: 1-2
 
 ━━━━━━━━━━━━━━━━━━━━━━
-🎯 Partite azzeccate: 7/10 giocate
-💰 Quota schedina: 383.93
-📊 Quota parziale (solo prese): 12.45
+🎯 Correct picks: 7/10 played
+💰 Slip odds: 383.93
+📊 Partial odds (correct picks only): 12.45
 ```
 
-## Variabili d'ambiente richieste
+## Required environment variables
 
-| Variabile | Descrizione |
+| Variable | Description |
 |---|---|
-| `TELEGRAM_TOKEN` | Token del bot da @BotFather |
-| `GEMINI_API_KEY` | API key gratuita da aistudio.google.com |
-| `FOOTBALL_DATA_TOKEN` | API key gratuita da football-data.org |
+| `TELEGRAM_TOKEN` | Bot token from @BotFather |
+| `GEMINI_API_KEY` | Free API key from aistudio.google.com |
+| `FOOTBALL_DATA_TOKEN` | Free API key from football-data.org |
 
-## Avvio locale
+## Run locally
 
 ```bash
 pip3 install -r requirements.txt
 python3 bot.py
 ```
 
-## Deploy
+## Deployment
 
-- **Render:** https://dashboard.render.com/web/srv-d7i0hn1j2pic73aho100/events
+Deployed on [Render](https://render.com).
+
+## Tech stack
+
+- **Bot framework** — python-telegram-bot
+- **AI parsing** — Google Gemini (vision)
+- **Match data** — football-data.org API
+- **Hosting** — Render

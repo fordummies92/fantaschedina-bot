@@ -2,3 +2,14 @@
 __pycache__/
 *.pyc
 .venv/
+
+# File locali, non vanno online
+.DS_Store
+.claude/
+
+# Vecchia copia del progetto rimasta annidata qui dentro
+/fantaschedina-bot/
+
+# Foto di schedine vere: dati personali, restano sul Mac
+schedina.jpg
+schedine_test/
