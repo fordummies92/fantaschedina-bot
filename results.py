@@ -14,10 +14,19 @@ ROME_TZ = ZoneInfo("Europe/Rome")
 _api_cache: dict[str, tuple[float, list]] = {}
 _API_CACHE_TTL = 300  # secondi
 
-THESPORTSDB_URL = "https://www.thesportsdb.com/api/v1/json/3/eventsround.php"
+# La vecchia chiave gratuita "3" è stata disattivata (403); "123" è la nuova chiave di test
+THESPORTSDB_URL = "https://www.thesportsdb.com/api/v1/json/123/eventsround.php"
 THESPORTSDB_LEAGUE_ID = 4332       # Italian Serie A
-THESPORTSDB_SEASON = "2025-2026"
-SERIE_A_SEASON_START = datetime(2025, 8, 24)  # inizio stagione 2025/26
+
+
+def _season_start_year(match_date: datetime) -> int:
+    """La stagione Serie A parte ad agosto: da luglio in poi è già la nuova."""
+    return match_date.year if match_date.month >= 7 else match_date.year - 1
+
+
+def _season_label(match_date: datetime) -> str:
+    y = _season_start_year(match_date)
+    return f"{y}-{y + 1}"
 
 # Mappatura nomi italiani → nomi usati dall'API
 TEAM_ALIASES = {
@@ -243,15 +252,17 @@ def check_prediction(mercato: str, pronostico: str, home_goals: int, away_goals:
 
 def _estimate_round(match_date: datetime) -> int:
     """Stima la giornata Serie A dalla data della partita."""
-    days = (match_date - SERIE_A_SEASON_START).days
+    # Inizio stagione approssimato al 22 agosto (2025/26: 24/08, 2026/27: 22/08)
+    season_start = datetime(_season_start_year(match_date), 8, 22)
+    days = (match_date - season_start).days
     return max(1, min(38, round(days / 7)))
 
 
-def _fetch_round(round_num: int) -> list:
+def _fetch_round(round_num: int, season: str) -> list:
     """Scarica le partite di una giornata da TheSportsDB."""
     resp = requests.get(
         THESPORTSDB_URL,
-        params={"id": THESPORTSDB_LEAGUE_ID, "r": round_num, "s": THESPORTSDB_SEASON},
+        params={"id": THESPORTSDB_LEAGUE_ID, "r": round_num, "s": season},
         timeout=10,
     )
     resp.raise_for_status()
@@ -330,11 +341,12 @@ def get_results_for_matches(partite: list) -> list:
         date_to_dt = datetime.strptime(date_to, "%Y-%m-%d")
 
         all_events = []
-        for delta in (-1, 0, 1):
+        # La stima tende a stare avanti (pause nazionali): guardiamo una giornata in più indietro
+        for delta in (-2, -1, 0, 1):
             r = estimated_round + delta
             if r < 1 or r > 38:
                 continue
-            all_events.extend(_fetch_round(r))
+            all_events.extend(_fetch_round(r, _season_label(min(dates))))
 
         # Filtra per data nella finestra della schedina (±1 giorno)
         api_matches = []

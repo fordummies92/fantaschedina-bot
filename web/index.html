@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fantaschedina</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --text: #1b1f24;
+    --muted: #667080;
+    --border: #e2e5ea;
+    --accent: #1f6feb;
+    --ok: #1a7f37;
+    --ok-bg: #e7f5ec;
+    --ko: #cf222e;
+    --ko-bg: #fdecee;
+    --wait: #9a6700;
+    --wait-bg: #fff6dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --card: #171b21;
+      --text: #e6e9ee;
+      --muted: #8b95a5;
+      --border: #2a313b;
+      --accent: #4c8dff;
+      --ok: #4ac26b;
+      --ok-bg: #12261a;
+      --ko: #ff6b6b;
+      --ko-bg: #2c1517;
+      --wait: #e3b341;
+      --wait-bg: #2a2310;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+
+  #drop {
+    display: block;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    background: var(--card);
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #drop.over { border-color: var(--accent); }
+  #drop strong { color: var(--accent); }
+  #drop input { display: none; }
+
+  #classifica { margin-top: 24px; }
+  #classifica:empty { display: none; }
+  .classifica-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .classifica-card h2 { font-size: 15px; margin: 0 0 8px; }
+  .classifica-card ol { margin: 0; padding-left: 22px; }
+  .classifica-card li { padding: 2px 0; }
+  .classifica-card .q { color: var(--muted); }
+
+  .head-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 16px;
+    margin: 28px 0 8px;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .riga {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .pane {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    min-width: 0;
+  }
+  .schedina img {
+    display: block;
+    width: 100%;
+    max-height: 520px;
+    object-fit: contain;
+    border-radius: 8px;
+    background: var(--bg);
+  }
+  .schedina .meta { margin-top: 10px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .schedina .nome { font-weight: 600; }
+  .schedina .file { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+
+  .risultati .titolo { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .risultati .titolo h3 { margin: 0; font-size: 16px; }
+  .punteggio { font-size: 22px; font-weight: 700; }
+  .punteggio small { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 7px 6px; border-top: 1px solid var(--border); vertical-align: top; }
+  td.esito { width: 28px; text-align: center; }
+  td.partita .data { color: var(--muted); font-size: 12px; }
+  td.pron { white-space: nowrap; }
+  td.ris { text-align: right; white-space: nowrap; font-weight: 600; }
+  tr.ok td.esito { color: var(--ok); }
+  tr.ko td.esito { color: var(--ko); }
+  tr.wait td.esito, tr.nf td.esito { color: var(--wait); }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 13px; }
+  tr.ok .badge { background: var(--ok-bg); color: var(--ok); }
+  tr.ko .badge { background: var(--ko-bg); color: var(--ko); }
+  tr.wait .badge, tr.nf .badge { background: var(--wait-bg); color: var(--wait); }
+
+  .riepilogo { margin-top: 10px; color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .riepilogo b { color: var(--text); }
+
+  .stato { color: var(--muted); padding: 24px 0; text-align: center; }
+  .errore { color: var(--ko); }
+  .spinner {
+    width: 22px; height: 22px; margin: 0 auto 10px;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 640px) {
+    .head-cols { display: none; }
+    .riga { grid-template-columns: 1fr; }
+    .schedina img { max-height: 320px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>⚽ Fantaschedina Serie A</h1>
+  <p class="sub">Carica le foto delle schedine: a sinistra la schedina, a destra il confronto con i risultati reali.</p>
+
+  <label id="drop">
+    <input id="file" type="file" accept="image/*" multiple>
+    Trascina qui le foto oppure <strong>scegli i file</strong>
+    <div class="sub" style="margin:6px 0 0">Puoi caricarne più di una alla volta</div>
+  </label>
+
+  <div id="classifica"></div>
+
+  <div class="head-cols" id="headCols" hidden>
+    <div>Schedina</div>
+    <div>Risultati</div>
+  </div>
+  <div id="lista"></div>
+</main>
+
+<script>
+const CONCORRENZA = 2; // Groq free tier va in 429 facilmente
+const coda = [];
+let attivi = 0;
+const esiti = []; // per la classifica
+
+const drop = document.getElementById("drop");
+const input = document.getElementById("file");
+const lista = document.getElementById("lista");
+
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => {
+  e.preventDefault();
+  drop.classList.remove("over");
+  aggiungi(e.dataTransfer.files);
+});
+input.addEventListener("change", () => { aggiungi(input.files); input.value = ""; });
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function aggiungi(files) {
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    document.getElementById("headCols").hidden = false;
+    const riga = document.createElement("div");
+    riga.className = "riga";
+    riga.innerHTML = `
+      <div class="pane schedina">
+        <img alt="Schedina ${esc(f.name)}" src="${URL.createObjectURL(f)}">
+        <div class="meta"><span class="nome">…</span><span class="file">${esc(f.name)}</span></div>
+      </div>
+      <div class="pane risultati"><div class="stato"><div class="spinner"></div>In coda…</div></div>`;
+    lista.prepend(riga);
+    coda.push({ file: f, riga });
+  }
+  avanza();
+}
+
+function avanza() {
+  while (attivi < CONCORRENZA && coda.length) {
+    const job = coda.shift();
+    attivi++;
+    elabora(job).finally(() => { attivi--; avanza(); });
+  }
+}
+
+async function elabora({ file, riga }) {
+  const pane = riga.querySelector(".risultati");
+  pane.innerHTML = `<div class="stato"><div class="spinner"></div>Leggo la schedina e cerco i risultati…</div>`;
+  const fd = new FormData();
+  fd.append("foto", file);
+  try {
+    const res = await fetch("/api/analizza", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.errore || `Errore ${res.status}`);
+    mostra(riga, data.schedina, data.risultati);
+  } catch (e) {
+    pane.innerHTML = `<div class="stato errore">❌ ${esc(e.message)}</div>`;
+    riga.querySelector(".nome").textContent = "—";
+  }
+}
+
+function mostra(riga, schedina, risultati) {
+  const utente = schedina.utente || "Senza nome";
+  riga.querySelector(".nome").textContent = `👤 ${utente}`;
+
+  let prese = 0, giocate = 0, quotaParziale = 1;
+  let giornata = null;
+  const righe = schedina.partite.map((p, i) => {
+    const r = risultati[i] || {};
+    if (r.matchday && !giornata) giornata = r.matchday;
+    let cls, icona, ris;
+    if (!r.found) {
+      cls = "nf"; icona = "?"; ris = "non trovata";
+    } else if (r.correct === true) {
+      cls = "ok"; icona = "✓"; ris = r.score; prese++; giocate++;
+      if (typeof p.quota === "number") quotaParziale *= p.quota;
+    } else if (r.correct === false) {
+      cls = "ko"; icona = "✗"; ris = r.score; giocate++;
+    } else {
+      cls = "wait"; icona = "⏳"; ris = "da giocare";
+    }
+    const data = r.played_date || [p.data, p.ora].filter(Boolean).join(" ");
+    return `<tr class="${cls}">
+      <td class="esito">${icona}</td>
+      <td class="partita">${esc(p.casa)} – ${esc(p.trasferta)}<div class="data">${esc(data)}</div></td>
+      <td class="pron"><span class="badge">${esc(p.pronostico)}</span>${p.quota ? ` <span class="data">@${esc(p.quota)}</span>` : ""}</td>
+      <td class="ris">${esc(ris)}</td>
+    </tr>`;
+  }).join("");
+
+  const totale = schedina.partite.length;
+  const daGiocare = totale - giocate;
+  riga.querySelector(".risultati").innerHTML = `
+    <div class="titolo">
+      <h3>${giornata ? `Giornata ${esc(giornata)}` : "Risultati"}</h3>
+      <div class="punteggio">${prese}/${giocate} <small>azzeccate su giocate</small></div>
+    </div>
+    <table>${righe}</table>
+    <div class="riepilogo">
+      <span>💰 Quota schedina <b>${esc(schedina.quota_totale ?? "?")}</b></span>
+      ${prese > 1 ? `<span>📊 Quota parziale <b>${quotaParziale.toFixed(2)}</b></span>` : ""}
+      ${daGiocare > 0 ? `<span>⏳ ${daGiocare} da giocare</span>` : ""}
+    </div>`;
+
+  esiti.push({ utente, prese, giocate, quota: schedina.quota_totale });
+  aggiornaClassifica();
+}
+
+function aggiornaClassifica() {
+  const box = document.getElementById("classifica");
+  if (esiti.length < 2) { box.innerHTML = ""; return; }
+  const ordinati = [...esiti].sort((a, b) => b.prese - a.prese || (b.quota || 0) - (a.quota || 0));
+  box.innerHTML = `<div class="classifica-card"><h2>🏆 Classifica</h2><ol>${
+    ordinati.map(e => `<li><b>${esc(e.utente)}</b> — ${e.prese}/${e.giocate} <span class="q">(quota ${esc(e.quota ?? "?")})</span></li>`).join("")
+  }</ol></div>`;
+}
+</script>
+</body>
+</html>

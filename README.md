@@ -41,6 +41,16 @@ pip3 install -r requirements.txt
 python3 bot.py
 ```
 
+### Local web page
+
+Upload ticket photos in the browser instead of Telegram: tickets on the left, results on the right, plus a leaderboard when you upload more than one.
+
+```bash
+python3 web.py
+```
+
+Then open http://localhost:5050. Only `GROQ_API_KEY` is needed.
+
 ## Deployment
 
 Deployed on [Render](https://render.com).
